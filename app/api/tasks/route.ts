@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 匿名ユーザーIDを取得
-    const anonymousId = getOrCreateAnonymousId()
+    // const anonymousId = getOrCreateAnonymousId()
 
     // タスクリストを作成
     const [taskList] = await db

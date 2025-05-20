@@ -8,24 +8,24 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 // 匿名ユーザーIDの取得または生成
-export function getOrCreateAnonymousId() {
-  const cookieStore = cookies()
-  const anonymousId = cookieStore.get("anonymousId")
+// export function getOrCreateAnonymousId() {
+//   const cookieStore = cookies()
+//   const anonymousId = cookieStore.get("anonymousId")
 
-  if (anonymousId) {
-    return anonymousId.value
-  }
+//   if (anonymousId) {
+//     return anonymousId.value
+//   }
 
-  const newAnonymousId = uuidv4()
-  cookieStore.set("anonymousId", newAnonymousId, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 60 * 60 * 24 * 365, // 1年
-    path: "/",
-  })
+//   const newAnonymousId = uuidv4()
+//   cookieStore.set("anonymousId", newAnonymousId, {
+//     httpOnly: true,
+//     secure: process.env.NODE_ENV === "production",
+//     maxAge: 60 * 60 * 24 * 365, // 1年
+//     path: "/",
+//   })
 
-  return newAnonymousId
-}
+//   return newAnonymousId
+// }
 
 // クライアント側で匿名ユーザーIDを取得
 export async function getClientAnonymousId() {
