@@ -303,13 +303,13 @@ export function KanbanBoard({
                                 </div>
                               </div>
                             </CardHeader>
-                            {task.description && !isMobile && (
+                            {/* {task.description && !isMobile && (
                               <CardContent className="p-3 pt-2">
                                 <div className="text-xs text-gray-600 dark:text-gray-300 max-h-24 overflow-y-auto">
                                   <MarkdownRenderer content={task.description} />
                                 </div>
                               </CardContent>
-                            )}
+                            )} */}
                             {/* 作業中のタスクには進捗バーを表示 */}
                             {task.status === "作業中" && (
                               <div className="px-3 pb-2">
