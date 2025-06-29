@@ -3,10 +3,10 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardContent } from "@/components/ui/card"
-import { ArrowRight, CheckCircle, Share2, Clock, ExternalLink } from "lucide-react"
+import { ArrowRight, CheckCircle, Share2, Clock, ExternalLink, Trash2, X } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
-import { getTaskListHistory } from "@/app/tasks/[id]/page"
+import { getTaskListHistory, removeFromTaskListHistory, clearTaskListHistory } from "@/app/tasks/[id]/page"
 
 type TaskListHistoryItem = {
   id: string;
@@ -22,6 +22,23 @@ export default function Home() {
     const history = getTaskListHistory()
     setRecentTaskLists(history)
   }, [])
+
+  // 特定のタスクリストを履歴から削除する関数
+  const handleRemoveFromHistory = (idToRemove: string, title: string) => {
+    if (confirm(`「${title}」を履歴から削除しますか？\n（タスクリスト自体は削除されません）`)) {
+      removeFromTaskListHistory(idToRemove)
+      // 状態を更新して画面に反映
+      setRecentTaskLists(prev => prev.filter(item => item.id !== idToRemove))
+    }
+  }
+
+  // 履歴を全てクリアする関数
+  const handleClearAllHistory = () => {
+    if (confirm('履歴を全て削除しますか？\n（タスクリスト自体は削除されません）')) {
+      clearTaskListHistory()
+      setRecentTaskLists([])
+    }
+  }
   return (
     <div className="container mx-auto px-4 py-12 max-w-5xl">
       <div className="flex flex-col items-center text-center space-y-8 py-12">
@@ -47,19 +64,32 @@ export default function Home() {
           <div className="flex items-center gap-2 mb-6 px-6">
             <Clock className="h-5 w-5 text-blue-500" />
             <h2 className="text-xl font-semibold">最近開いたタスクリスト</h2>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-3">
               <span className="text-sm text-gray-500">{recentTaskLists.length}件</span>
             </div>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 px-6">
             {recentTaskLists.slice(0, 6).map((item) => (
-              <Card key={item.id} className="hover:shadow-md transition-shadow bg-white dark:bg-gray-700">
+              <Card key={item.id} className="hover:shadow-md transition-shadow bg-white dark:bg-gray-700 group">
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between">
                     <h3 className="font-medium text-sm truncate flex-1 pr-2">
                       {item.title}
                     </h3>
-                    <ExternalLink className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          handleRemoveFromHistory(item.id, item.title)
+                        }}
+                        className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 hover:text-red-600"
+                        title="履歴から削除"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">

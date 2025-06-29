@@ -181,6 +181,32 @@ export const getTaskListHistory = (): TaskListHistoryItem[] => {
   }
 };
 
+// タスクリストの履歴から特定のアイテムを削除する関数
+export const removeFromTaskListHistory = (idToRemove: string): void => {
+  if (typeof window === "undefined") return;
+
+  const historyKey = "yarimaus_tasklist_history";
+  const existingHistory = localStorage.getItem(historyKey);
+  
+  if (!existingHistory) return;
+
+  try {
+    const history: TaskListHistoryItem[] = JSON.parse(existingHistory);
+    const updatedHistory = history.filter((item) => item.id !== idToRemove);
+    localStorage.setItem(historyKey, JSON.stringify(updatedHistory));
+  } catch (e) {
+    console.error("Error removing from task list history:", e);
+  }
+};
+
+// タスクリストの履歴を全てクリアする関数
+export const clearTaskListHistory = (): void => {
+  if (typeof window === "undefined") return;
+  
+  const historyKey = "yarimaus_tasklist_history";
+  localStorage.removeItem(historyKey);
+};
+
 export default function TaskListPage() {
   const params = useParams();
   const searchParams = useSearchParams();
