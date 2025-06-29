@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
           status: "未着手",
           assignedTo: "",
           completed: false,
+          priority: task.priority ?? 1,
         })
       }
     }

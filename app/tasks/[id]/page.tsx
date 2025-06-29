@@ -43,6 +43,9 @@ import {
   XIcon,
   RefreshCw,
   User,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { generateQRCodeUrl } from "@/lib/utils";
 import { TaskComments } from "@/components/task-comments";
@@ -72,6 +75,7 @@ type Task = {
   assignedTo: string;
   completed: boolean;
   progressPercentage?: number;
+  priority?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -140,6 +144,7 @@ export default function TaskListPage() {
   const [editDescription, setEditDescription] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskDescription, setNewTaskDescription] = useState("");
+  const [newTaskPriority, setNewTaskPriority] = useState("1");
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [isEditingList, setIsEditingList] = useState(false);
   const [editListTitle, setEditListTitle] = useState("");
@@ -152,7 +157,7 @@ export default function TaskListPage() {
     taskId: string;
     value: any;
   } | null>(null);
-  const [viewMode, setViewMode] = useState<"list" | "kanban">("list");
+  const [viewMode, setViewMode] = useState<"list" | "kanban">("kanban");
   // タスクの詳細表示状態を管理する状態
   const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>(
     {}
@@ -180,8 +185,15 @@ export default function TaskListPage() {
   const [isEditingAssignee, setIsEditingAssignee] = useState<
     Record<string, boolean>
   >({});
+  // 優先順位入力用の状態（編集状態管理は不要になったため削除）
+  const [taskPriorities, setTaskPriorities] = useState<Record<string, string>>(
+    {}
+  );
 
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
+  
+  // ソート順の状態管理
+  const [sortOrder, setSortOrder] = useState<Record<string, 'asc' | 'desc' | null>>({});
 
   const shareUrl = typeof window !== "undefined" ? window.location.href : "";
   const qrCodeUrl = generateQRCodeUrl(shareUrl);
@@ -327,8 +339,11 @@ export default function TaskListPage() {
       filtered = filtered.filter((task) => task.status === statusFilter);
     }
 
-    setFilteredTasks(filtered);
-  }, [tasks, debouncedSearchQuery, debouncedSearchById, statusFilter]);
+    // ソート機能を適用
+    const sortedFiltered = getSortedTasks(filtered);
+
+    setFilteredTasks(sortedFiltered);
+  }, [tasks, debouncedSearchQuery, debouncedSearchById, statusFilter, sortOrder]);
 
   // URLのクエリパラメータからタスクIDを取得し、該当タスクを表示
   useEffect(() => {
@@ -530,6 +545,79 @@ export default function TaskListPage() {
           ? error.message
           : "担当者の更新中にエラーが発生しました"
       );
+    }
+  };
+
+  // 優先順位を更新する関数
+  const handlePriorityChange = async (taskId: string, priority: number) => {
+    console.log('handlePriorityChange called:', { taskId, priority }); // デバッグログ追加
+    try {
+      const response = await fetch(`/api/tasks/${id}/items/${taskId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          priority: priority,
+        }),
+      });
+
+      console.log('API response status:', response.status); // デバッグログ追加
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API error response:', errorText); // エラーログ追加
+        if (response.status === 429) {
+          alert(
+            "サーバーが混雑しています。しばらく待ってから再試行してください。"
+          );
+          return;
+        }
+        throw new Error("優先順位の更新に失敗しました");
+      }
+
+      const { task } = await response.json();
+      console.log('Updated task from API:', task); // デバッグログ追加
+      
+      const updatedTasks = tasks.map((t) =>
+        t.id === taskId ? { ...t, priority: task.priority } : t
+      );
+      setTasks(updatedTasks);
+
+      // キャッシュを更新
+      const cachedData = getCachedTaskListData(id);
+      if (cachedData) {
+        const updatedData = {
+          ...cachedData.data,
+          tasks: updatedTasks,
+        };
+        cacheTaskListData(id, updatedData);
+      }
+    } catch (error) {
+      console.error("Error updating priority:", error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "優先順位の更新中にエラーが発生しました"
+      );
+    }
+  };
+
+  // 優先順位を保存する関数
+  const savePriority = async (taskId: string) => {
+    const priorityValue = taskPriorities[taskId];
+    console.log('savePriority called:', { taskId, priorityValue }); // デバッグログ追加
+    
+    if (priorityValue !== undefined && priorityValue !== "") {
+      const numericPriority = parseFloat(priorityValue);
+      console.log('Parsed priority:', numericPriority); // デバッグログ追加
+      
+      if (!isNaN(numericPriority)) {
+        await handlePriorityChange(taskId, numericPriority);
+      } else {
+        console.error('Invalid priority value:', priorityValue);
+        alert('優先順位は数値で入力してください');
+      }
     }
   };
 
@@ -837,6 +925,7 @@ export default function TaskListPage() {
         body: JSON.stringify({
           title: newTaskTitle,
           description: newTaskDescription,
+          priority: newTaskPriority ? parseFloat(newTaskPriority) : undefined,
         }),
       });
 
@@ -871,6 +960,7 @@ export default function TaskListPage() {
 
       setNewTaskTitle("");
       setNewTaskDescription("");
+      setNewTaskPriority("");
       setIsAddingTask(false);
 
       // キャッシュを更新
@@ -1052,6 +1142,73 @@ export default function TaskListPage() {
   const selectedTask = selectedTaskId
     ? tasks.find((t) => t.id === selectedTaskId)
     : null;
+
+  // 優先順位でソートする関数
+  const sortTasksByPriority = (status: string) => {
+    const currentOrder = sortOrder[status] || null;
+    let newOrder: 'asc' | 'desc' | null;
+    
+    // null -> desc -> asc -> null の順でトグル
+    if (currentOrder === null) {
+      newOrder = 'desc'; // 高い順
+    } else if (currentOrder === 'desc') {
+      newOrder = 'asc'; // 低い順
+    } else {
+      newOrder = null; // ソートなし（元の順序）
+    }
+    
+    setSortOrder(prev => ({
+      ...prev,
+      [status]: newOrder
+    }));
+  };
+
+  // ソートされたタスクを取得する関数
+  const getSortedTasks = (tasksToSort: Task[]): Task[] => {
+    // "all"キーでのソートが設定されている場合（リストビュー用）
+    const allOrder = sortOrder["all"];
+    if (allOrder) {
+      return [...tasksToSort].sort((a, b) => {
+        const priorityA = a.priority ?? 1;
+        const priorityB = b.priority ?? 1;
+        
+        if (allOrder === 'desc') {
+          return priorityB - priorityA; // 高い順
+        } else {
+          return priorityA - priorityB; // 低い順
+        }
+      });
+    }
+
+    // ステータス別にグループ化（カンバンビュー用）
+    const groupedTasks = tasksToSort.reduce((acc, task) => {
+      if (!acc[task.status]) {
+        acc[task.status] = [];
+      }
+      acc[task.status].push(task);
+      return acc;
+    }, {} as Record<string, Task[]>);
+
+    // 各ステータスグループ内でソート
+    Object.keys(groupedTasks).forEach(status => {
+      const order = sortOrder[status];
+      if (order) {
+        groupedTasks[status].sort((a, b) => {
+          const priorityA = a.priority ?? 1;
+          const priorityB = b.priority ?? 1;
+          
+          if (order === 'desc') {
+            return priorityB - priorityA; // 高い順
+          } else {
+            return priorityA - priorityB; // 低い順
+          }
+        });
+      }
+    });
+
+    // 結果を統合
+    return Object.values(groupedTasks).flat();
+  };
 
   if (loading) {
     return (
@@ -1252,6 +1409,38 @@ export default function TaskListPage() {
                   <LayoutGrid className="h-4 w-4 mr-1" /> カンバン
                 </Button>
               </div>
+              {viewMode === "list" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => sortTasksByPriority("all")}
+                  className="flex items-center gap-1 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                  title={
+                    !sortOrder["all"] 
+                      ? "全体を優先度で並び替える" 
+                      : sortOrder["all"] === 'desc' 
+                      ? "優先度順: 高い順に表示中（クリックで低い順に変更）" 
+                      : "優先度順: 低い順に表示中（クリックでリセット）"
+                  }
+                >
+                  {!sortOrder["all"] ? (
+                    <>
+                      <ArrowUpDown className="w-3 h-3" />
+                      <span className="text-xs">優先度順</span>
+                    </>
+                  ) : sortOrder["all"] === 'desc' ? (
+                    <>
+                      <ArrowDown className="w-3 h-3 text-red-500" />
+                      <span className="text-xs text-red-600">高→低</span>
+                    </>
+                  ) : (
+                    <>
+                      <ArrowUp className="w-3 h-3 text-blue-500" />
+                      <span className="text-xs text-blue-600">低→高</span>
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
             <Button
               onClick={() => setIsAddingTask(true)}
@@ -1440,6 +1629,76 @@ export default function TaskListPage() {
                     rows={3}
                   />
                 </div>
+                <div className="space-y-3">
+                  <Label 
+                    htmlFor="new-task-priority"
+                    className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    <div className="flex items-center space-x-1">
+                      <div className="w-2 h-2 rounded-full bg-gradient-to-r from-orange-400 to-red-500"></div>
+                      <span>優先度</span>
+                    </div>
+                  </Label>
+                  <div className="flex items-center space-x-3">
+                    <div className="relative group">
+                      <Input
+                        id="new-task-priority"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        placeholder="1.0"
+                        value={newTaskPriority}
+                        onChange={(e) => setNewTaskPriority(e.target.value)}
+                        onInput={(e) => {
+                          // 矢印ボタンでの変更も検知
+                          const value = (e.target as HTMLInputElement).value;
+                          setNewTaskPriority(value);
+                        }}
+                        className="w-20 h-10 text-sm text-center border-2 border-transparent bg-gray-50 dark:bg-gray-800 rounded-lg 
+                                 hover:border-blue-300 focus:border-blue-500 focus:bg-white dark:focus:bg-gray-700
+                                 transition-all duration-200 ease-in-out
+                                 group-hover:shadow-sm focus:shadow-md"
+                      />
+                      <div className="absolute -bottom-1 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 to-purple-500 
+                                    scale-x-0 group-hover:scale-x-100 transition-transform duration-200"></div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {/* 優先度レベル表示 */}
+                      <div className="flex space-x-1">
+                        {[1, 2, 3, 4, 5].map((level) => {
+                          const currentPriority = parseFloat(newTaskPriority) || 1;
+                          const isActive = currentPriority >= level;
+                          return (
+                            <div
+                              key={level}
+                              className={`w-2 h-4 rounded-sm transition-all duration-200 ${
+                                isActive 
+                                  ? level <= 2 
+                                    ? 'bg-green-400' 
+                                    : level <= 4 
+                                    ? 'bg-yellow-400' 
+                                    : 'bg-red-400'
+                                  : 'bg-gray-200 dark:bg-gray-600'
+                              }`}
+                            />
+                          );
+                        })}
+                      </div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 min-w-[2rem]">
+                        {(() => {
+                          const currentPriority = parseFloat(newTaskPriority) || 1;
+                          if (currentPriority <= 2) return "低";
+                          if (currentPriority <= 4) return "中";
+                          return "高";
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    数値が大きいほど優先度が高くなります（例: 1.0=低, 3.0=中, 5.0=高）
+                  </div>
+                </div>
                 <div className="flex justify-end space-x-2">
                   <Button
                     variant="outline"
@@ -1447,6 +1706,7 @@ export default function TaskListPage() {
                       setIsAddingTask(false);
                       setNewTaskTitle("");
                       setNewTaskDescription("");
+                      setNewTaskPriority("");
                     }}
                   >
                     キャンセル
@@ -1483,6 +1743,9 @@ export default function TaskListPage() {
                 selectedTask={selectedKanbanTask}
                 onSelectedTaskChange={handleSelectedKanbanTaskChange}
                 onAssigneeChange={handleAssigneeChange}
+                onPriorityChange={handlePriorityChange}
+                sortOrder={sortOrder}
+                onSortByPriority={sortTasksByPriority}
               />
             </div>
           ) : filteredTasks.length === 0 ? (
@@ -1492,7 +1755,7 @@ export default function TaskListPage() {
               </p>
             </div>
           ) : (
-            filteredTasks.map((task) => (
+            getSortedTasks(filteredTasks).map((task) => (
               <Card
                 key={task.id}
                 id={`task-${task.id}`}
@@ -1676,6 +1939,102 @@ export default function TaskListPage() {
                           )}
                         </div>
                       )}
+
+                      {/* 優先順位表示・編集エリア - 改善版 */}
+                      <div className="flex items-center space-x-2">
+                        <Label
+                          htmlFor={`task-${task.id}-priority`}
+                          className="whitespace-nowrap flex items-center text-sm font-medium text-gray-700 dark:text-gray-300"
+                        >
+                          <div className="flex items-center space-x-1">
+                            <div className="w-2 h-2 rounded-full bg-gradient-to-r from-orange-400 to-red-500"></div>
+                            <span>優先度</span>
+                          </div>
+                        </Label>
+                        <div className="relative group">
+                          <Input
+                            id={`task-${task.id}-priority`}
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            value={taskPriorities[task.id] !== undefined ? taskPriorities[task.id] : (task.priority ?? 1)}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setTaskPriorities((prev) => ({
+                                ...prev,
+                                [task.id]: value,
+                              }));
+                            }}
+                            onInput={(e) => {
+                              // 矢印ボタンでの変更も検知
+                              const value = (e.target as HTMLInputElement).value;
+                              setTaskPriorities((prev) => ({
+                                ...prev,
+                                [task.id]: value,
+                              }));
+                              // 即座にDBに反映
+                              const priorityValue = parseFloat(value);
+                              if (!isNaN(priorityValue) && priorityValue >= 0) {
+                                handlePriorityChange(task.id, priorityValue);
+                              }
+                            }}
+                            onBlur={() => {
+                              const priorityValue = parseFloat(taskPriorities[task.id] || "1");
+                              if (!isNaN(priorityValue) && priorityValue >= 0) {
+                                handlePriorityChange(task.id, priorityValue);
+                              } else {
+                                // 無効な値の場合は元の値に戻す
+                                setTaskPriorities((prev) => ({
+                                  ...prev,
+                                  [task.id]: (task.priority ?? 1).toString(),
+                                }));
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const priorityValue = parseFloat(taskPriorities[task.id] || "1");
+                                if (!isNaN(priorityValue) && priorityValue >= 0) {
+                                  handlePriorityChange(task.id, priorityValue);
+                                  e.currentTarget.blur();
+                                }
+                              }
+                            }}
+                            className="w-16 h-8 text-sm text-center border-2 border-transparent bg-gray-50 dark:bg-gray-800 rounded-lg 
+                                     hover:border-blue-300 focus:border-blue-500 focus:bg-white dark:focus:bg-gray-700
+                                     transition-all duration-200 ease-in-out
+                                     group-hover:shadow-sm focus:shadow-md"
+                            placeholder="1.0"
+                          />
+                          <div className="absolute -bottom-1 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 to-purple-500 
+                                        scale-x-0 group-hover:scale-x-100 transition-transform duration-200"></div>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          {/* 優先度レベル表示 */}
+                          <div className="flex space-x-0.5">
+                            {[1, 2, 3, 4, 5].map((level) => {
+                              const currentPriority = taskPriorities[task.id] !== undefined 
+                                ? parseFloat(taskPriorities[task.id]) 
+                                : (task.priority ?? 1);
+                              const isActive = currentPriority >= level;
+                              return (
+                                <div
+                                  key={level}
+                                  className={`w-1.5 h-3 rounded-sm transition-all duration-200 ${
+                                    isActive 
+                                      ? level <= 2 
+                                        ? 'bg-green-400' 
+                                        : level <= 4 
+                                        ? 'bg-yellow-400' 
+                                        : 'bg-red-400'
+                                      : 'bg-gray-200 dark:bg-gray-600'
+                                  }`}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
 
                       {task.status !== "未着手" && task.assignedTo && (
                         <div className="text-sm text-gray-500">

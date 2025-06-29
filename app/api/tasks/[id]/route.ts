@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { db, taskLists, tasks } from "@/lib/db"
 import { eq } from "drizzle-orm"
+import { ensureTasksPriority } from "@/lib/utils"
 
 // リトライ用のヘルパー関数
 async function withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
@@ -24,7 +25,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Pr
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const id = params.id
+    const { id } = await params
 
     // リトライロジックを使用してデータベースクエリを実行
     const result = await withRetry(async () => {
@@ -36,11 +37,44 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       }
 
       // タスクを取得
-      const taskItems = await db.select().from(tasks).where(eq(tasks.listId, id)).orderBy(tasks.createdAt)
+      try {
+        const taskItems = await db.select().from(tasks).where(eq(tasks.listId, id)).orderBy(tasks.createdAt)
+        
+        // priorityカラムが存在しない場合のフォールバック処理
+        const tasksWithPriority = ensureTasksPriority(taskItems)
 
-      return {
-        taskList,
-        tasks: taskItems,
+        return {
+          taskList,
+          tasks: tasksWithPriority,
+        }
+      } catch (dbError) {
+        // priorityカラムが存在しない場合のフォールバック
+        console.warn("Database query failed, possibly missing priority column:", dbError)
+        
+        // priorityカラムなしでクエリを再試行
+        const taskItems = await db.select({
+          id: tasks.id,
+          listId: tasks.listId,
+          title: tasks.title,
+          description: tasks.description,
+          status: tasks.status,
+          assignedTo: tasks.assignedTo,
+          completed: tasks.completed,
+          progressPercentage: tasks.progressPercentage,
+          createdAt: tasks.createdAt,
+          updatedAt: tasks.updatedAt,
+        }).from(tasks).where(eq(tasks.listId, id)).orderBy(tasks.createdAt)
+
+        // priority: 1をデフォルトとして追加
+        const tasksWithPriority = taskItems.map(task => ({
+          ...task,
+          priority: 1
+        }))
+
+        return {
+          taskList,
+          tasks: tasksWithPriority,
+        }
       }
     })
 
@@ -66,7 +100,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const id = params.id
+    const { id } = await params
     const { title, description } = await request.json()
 
     // リトライロジックを使用してデータベースクエリを実行

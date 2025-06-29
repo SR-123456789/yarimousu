@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm"
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const taskId = params.id
+    const { id: taskId } = await params
 
     // コメントを取得
     const commentList = await db.select().from(comments).where(eq(comments.taskId, taskId)).orderBy(comments.createdAt)
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const taskId = params.id
+    const { id: taskId } = await params
     const { content, userName } = await request.json()
 
     // バリデーション

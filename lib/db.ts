@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/neon-http"
 import { neon } from "@neondatabase/serverless"
-import { pgTable, serial, text, timestamp, uuid, varchar, boolean, integer } from "drizzle-orm/pg-core"
+import { pgTable, serial, text, timestamp, uuid, varchar, boolean, integer, real } from "drizzle-orm/pg-core"
 
 // 環境変数からデータベース接続文字列を取得
 const sql = neon(process.env.DATABASE_URL!)
@@ -27,6 +27,7 @@ export const tasks = pgTable("tasks", {
   assignedTo: varchar("assigned_to", { length: 100 }),
   completed: boolean("completed").default(false).notNull(),
   progressPercentage: integer("progress_percentage").default(0), // 進捗パーセンテージを追加
+  priority: real("priority"), // 優先順位を追加（小数点対応）
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })

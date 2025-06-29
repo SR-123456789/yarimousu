@@ -6,7 +6,7 @@ import { Card, CardHeader, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
-import { Edit, Trash2, Share2, User } from "lucide-react"
+import { Edit, Trash2, Share2, User, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { useMobile } from "@/hooks/use-mobile"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -28,6 +28,7 @@ type Task = {
   assignedTo: string
   completed: boolean
   progressPercentage?: number
+  priority?: number
   createdAt: string
   updatedAt: string
 }
@@ -45,6 +46,9 @@ interface KanbanBoardProps {
   selectedTask?: Task | null
   onSelectedTaskChange?: (task: Task | null) => void
   onAssigneeChange?: (taskId: string, assignee: string) => void
+  onPriorityChange?: (taskId: string, priority: number) => void
+  sortOrder?: Record<string, 'asc' | 'desc' | null>
+  onSortByPriority?: (status: string) => void
 }
 
 const statusColumns = [
@@ -68,6 +72,9 @@ export function KanbanBoard({
   selectedTask: externalSelectedTask,
   onSelectedTaskChange,
   onAssigneeChange,
+  onPriorityChange,
+  sortOrder = {},
+  onSortByPriority,
 }: KanbanBoardProps) {
   const [columns, setColumns] = useState<{ [key: string]: Task[] }>({})
   const isMobile = useMobile()
@@ -81,6 +88,8 @@ export function KanbanBoard({
   const isDraggingSliderRef = useRef(false)
   const [isEditingAssignee, setIsEditingAssignee] = useState(false)
   const [editAssignee, setEditAssignee] = useState("")
+  const [isEditingPriority, setIsEditingPriority] = useState(false)
+  const [editPriority, setEditPriority] = useState("")
 
   // 実際に表示に使用するselectedTaskを決定
   // 外部から渡されたものがあればそれを優先
@@ -91,12 +100,15 @@ export function KanbanBoard({
     if (externalSelectedTask && !initialRenderRef.current) {
       setIsEditing(false)
       setIsEditingAssignee(false)
+      setIsEditingPriority(false) // 優先順位の編集状態もリセット
       // 選択されたタスクが作業中の場合、スライダーの値を更新
       if (externalSelectedTask.status === "作業中") {
         setSliderValue(externalSelectedTask.progressPercentage || 0)
       }
       // 担当者の値を更新
       setEditAssignee(externalSelectedTask.assignedTo || "")
+      // 優先順位の値を更新
+      setEditPriority(String(externalSelectedTask.priority ?? 1))
     }
     initialRenderRef.current = false
   }, [externalSelectedTask])
@@ -108,6 +120,7 @@ export function KanbanBoard({
         setSliderValue(selectedTask.progressPercentage || 0)
       }
       setEditAssignee(selectedTask.assignedTo || "")
+      setEditPriority(String(selectedTask.priority ?? 1)) // 優先順位の値も更新
     }
   }, [selectedTask])
 
@@ -116,11 +129,28 @@ export function KanbanBoard({
     const newColumns: { [key: string]: Task[] } = {}
 
     statusColumns.forEach((column) => {
-      newColumns[column.id] = tasks.filter((task) => task.status === column.id)
+      let columnTasks = tasks.filter((task) => task.status === column.id)
+      
+      // ソート順が設定されている場合は適用
+      const order = sortOrder[column.id]
+      if (order) {
+        columnTasks.sort((a, b) => {
+          const priorityA = a.priority ?? 1
+          const priorityB = b.priority ?? 1
+          
+          if (order === 'desc') {
+            return priorityB - priorityA // 高い順
+          } else {
+            return priorityA - priorityB // 低い順
+          }
+        })
+      }
+      
+      newColumns[column.id] = columnTasks
     })
 
     setColumns(newColumns)
-  }, [tasks])
+  }, [tasks, sortOrder])
 
   const onDragEnd = (result: DropResult) => {
     const { destination, source, draggableId } = result
@@ -153,10 +183,12 @@ export function KanbanBoard({
     }
     setIsEditing(false)
     setIsEditingAssignee(false)
+    setIsEditingPriority(false) // 優先順位の編集状態もリセット
     if (task.status === "作業中") {
       setSliderValue(task.progressPercentage || 0)
     }
     setEditAssignee(task.assignedTo || "")
+    setEditPriority(String(task.priority ?? 1)) // 優先順位の値を設定
   }
 
   const handleEditClick = () => {
@@ -183,6 +215,7 @@ export function KanbanBoard({
     }
     setIsEditing(false)
     setIsEditingAssignee(false)
+    setIsEditingPriority(false) // 優先順位の編集状態もリセット
   }
 
   const handleShareClick = () => {
@@ -216,6 +249,27 @@ export function KanbanBoard({
     }
   }
 
+  // 優先順位編集モードの切り替え
+  const togglePriorityEdit = () => {
+    setIsEditingPriority(!isEditingPriority)
+    if (!isEditingPriority && selectedTask) {
+      setEditPriority(selectedTask.priority?.toString() || "1")
+    }
+  }
+
+  // 優先順位の保存
+  const handleSavePriority = () => {
+    if (selectedTask && onPriorityChange) {
+      const priorityValue = parseFloat(editPriority)
+      if (!isNaN(priorityValue)) {
+        onPriorityChange(selectedTask.id, priorityValue)
+        setIsEditingPriority(false)
+      } else {
+        alert("有効な数値を入力してください")
+      }
+    }
+  }
+
   return (
     <div className="overflow-x-auto pb-4">
       <DragDropContext onDragEnd={onDragEnd}>
@@ -223,10 +277,48 @@ export function KanbanBoard({
           {statusColumns.map((column) => (
             <div key={column.id} className={isMobile ? "w-56" : "w-72"}>
               <div className="bg-gray-100 dark:bg-gray-800 rounded-t-lg p-2 md:p-3">
-                <h3 className="font-medium text-xs md:text-sm">{column.name}</h3>
-                <Badge variant="outline" className="mt-1 text-xs">
-                  {columns[column.id]?.length || 0}
-                </Badge>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium text-xs md:text-sm">{column.name}</h3>
+                    <Badge variant="outline" className="mt-1 text-xs">
+                      {columns[column.id]?.length || 0}
+                    </Badge>
+                  </div>
+                  {onSortByPriority && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
+                      onClick={() => onSortByPriority(column.id)}
+                      title={
+                        !sortOrder[column.id] 
+                          ? "優先度で並び替える" 
+                          : sortOrder[column.id] === 'desc' 
+                          ? "優先度順: 高い順に表示中（クリックで低い順に変更）" 
+                          : "優先度順: 低い順に表示中（クリックでリセット）"
+                      }
+                    >
+                      <div className="flex items-center gap-1">
+                        {!sortOrder[column.id] ? (
+                          <>
+                            <ArrowUpDown className="w-3 h-3" />
+                            <span className="text-[10px] font-medium">優先度</span>
+                          </>
+                        ) : sortOrder[column.id] === 'desc' ? (
+                          <>
+                            <ArrowDown className="w-3 h-3 text-red-500" />
+                            <span className="text-[10px] font-medium text-red-600">高→低</span>
+                          </>
+                        ) : (
+                          <>
+                            <ArrowUp className="w-3 h-3 text-blue-500" />
+                            <span className="text-[10px] font-medium text-blue-600">低→高</span>
+                          </>
+                        )}
+                      </div>
+                    </Button>
+                  )}
+                </div>
               </div>
               <Droppable droppableId={column.id}>
                 {(provided) => (
@@ -272,6 +364,44 @@ export function KanbanBoard({
                                     {task.assignedTo && (
                                       <div className={`${isMobile ? "text-[10px]" : "text-xs"} text-gray-500 mt-0.5`}>
                                         {task.assignedTo}
+                                      </div>
+                                    )}
+                                    {task.priority !== undefined && task.priority !== null && (
+                                      <div className={`flex items-center justify-between bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 px-2 py-1 rounded-md mt-1 ${isMobile ? "text-[10px]" : "text-xs"}`}>
+                                        <div className="flex items-center space-x-1">
+                                          <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-orange-400 to-red-500"></div>
+                                          <span className="text-gray-700 dark:text-gray-300 font-medium">優先度</span>
+                                          <span className="font-bold text-orange-600 dark:text-orange-400">{task.priority}</span>
+                                        </div>
+                                        <div className="flex items-center space-x-1">
+                                          <div className="flex space-x-0.5">
+                                            {[1, 2, 3, 4, 5].map((level) => {
+                                              const isActive = (task.priority ?? 1) >= level;
+                                              return (
+                                                <div
+                                                  key={level}
+                                                  className={`w-1 h-2 rounded-sm transition-all duration-200 ${
+                                                    isActive 
+                                                      ? level <= 2 
+                                                        ? 'bg-green-400' 
+                                                        : level <= 4 
+                                                        ? 'bg-yellow-400' 
+                                                        : 'bg-red-400'
+                                                      : 'bg-gray-200 dark:bg-gray-600'
+                                                  }`}
+                                                />
+                                              );
+                                            })}
+                                          </div>
+                                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400 ml-1">
+                                            {(() => {
+                                              const priority = task.priority ?? 1;
+                                              if (priority <= 2) return "低";
+                                              if (priority <= 4) return "中";
+                                              return "高";
+                                            })()}
+                                          </span>
+                                        </div>
                                       </div>
                                     )}
                                   </div>
@@ -462,6 +592,101 @@ export function KanbanBoard({
                       )}
                     </div>
                   )}
+
+                  {/* 優先順位表示・編集エリア - 改善版 */}
+                  <div className="flex items-center space-x-2">
+                    <Label
+                      htmlFor={`dialog-task-${selectedTask.id}-priority`}
+                      className="whitespace-nowrap flex items-center text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      <div className="flex items-center space-x-1">
+                        <div className="w-2 h-2 rounded-full bg-gradient-to-r from-orange-400 to-red-500"></div>
+                        <span>優先度</span>
+                      </div>
+                    </Label>
+                    <div className="relative group">
+                      <Input
+                        id={`dialog-task-${selectedTask.id}-priority`}
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        value={editPriority !== "" ? editPriority : (selectedTask.priority ?? 1)}
+                        onChange={(e) => setEditPriority(e.target.value)}
+                        onInput={(e) => {
+                          // 矢印ボタンでの変更も検知
+                          const value = (e.target as HTMLInputElement).value;
+                          setEditPriority(value);
+                          // 即座にDBに反映
+                          const priorityValue = parseFloat(value);
+                          if (!isNaN(priorityValue) && priorityValue >= 0 && onPriorityChange) {
+                            onPriorityChange(selectedTask.id, priorityValue);
+                          }
+                        }}
+                        onBlur={() => {
+                          const priorityValue = parseFloat(editPriority || "1");
+                          if (!isNaN(priorityValue) && priorityValue >= 0 && onPriorityChange) {
+                            onPriorityChange(selectedTask.id, priorityValue);
+                          } else {
+                            // 無効な値の場合は元の値に戻す
+                            setEditPriority((selectedTask.priority ?? 1).toString());
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const priorityValue = parseFloat(editPriority || "1");
+                            if (!isNaN(priorityValue) && priorityValue >= 0 && onPriorityChange) {
+                              onPriorityChange(selectedTask.id, priorityValue);
+                              e.currentTarget.blur();
+                            }
+                          }
+                        }}
+                        className="w-20 h-10 text-sm text-center border-2 border-transparent bg-gray-50 dark:bg-gray-800 rounded-lg 
+                                 hover:border-blue-300 focus:border-blue-500 focus:bg-white dark:focus:bg-gray-700
+                                 transition-all duration-200 ease-in-out
+                                 group-hover:shadow-sm focus:shadow-md"
+                        placeholder="1.0"
+                      />
+                      <div className="absolute -bottom-1 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 to-purple-500 
+                                    scale-x-0 group-hover:scale-x-100 transition-transform duration-200"></div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {/* 優先度レベル表示 */}
+                      <div className="flex space-x-1">
+                        {[1, 2, 3, 4, 5].map((level) => {
+                          const currentPriority = editPriority !== "" 
+                            ? parseFloat(editPriority) 
+                            : (selectedTask.priority ?? 1);
+                          const isActive = currentPriority >= level;
+                          return (
+                            <div
+                              key={level}
+                              className={`w-2 h-4 rounded-sm transition-all duration-200 ${
+                                isActive 
+                                  ? level <= 2 
+                                    ? 'bg-green-400' 
+                                    : level <= 4 
+                                    ? 'bg-yellow-400' 
+                                    : 'bg-red-400'
+                                  : 'bg-gray-200 dark:bg-gray-600'
+                              }`}
+                            />
+                          );
+                        })}
+                      </div>
+                      {/* 優先度説明 */}
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {(() => {
+                          const currentPriority = editPriority !== "" 
+                            ? parseFloat(editPriority) 
+                            : (selectedTask.priority ?? 1);
+                          if (currentPriority <= 2) return "低";
+                          if (currentPriority <= 4) return "中";
+                          return "高";
+                        })()}
+                      </div>
+                    </div>
+                  </div>
 
                   {selectedTask.status !== "未着手" && selectedTask.assignedTo && (
                     <div className="text-sm text-gray-500">担当者: {selectedTask.assignedTo}</div>
