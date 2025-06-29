@@ -1,9 +1,27 @@
+"use client"
+
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { ArrowRight, CheckCircle, Share2 } from "lucide-react"
+import { Card, CardHeader, CardContent } from "@/components/ui/card"
+import { ArrowRight, CheckCircle, Share2, Clock, ExternalLink } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
+import { getTaskListHistory } from "@/app/tasks/[id]/page"
+
+type TaskListHistoryItem = {
+  id: string;
+  title: string;
+  lastAccessed: number;
+};
 
 export default function Home() {
+  const [recentTaskLists, setRecentTaskLists] = useState<TaskListHistoryItem[]>([])
+
+  useEffect(() => {
+    // 最近開いたタスクリストを取得
+    const history = getTaskListHistory()
+    setRecentTaskLists(history)
+  }, [])
   return (
     <div className="container mx-auto px-4 py-12 max-w-5xl">
       <div className="flex flex-col items-center text-center space-y-8 py-12">
@@ -22,6 +40,55 @@ export default function Home() {
           </Button>
         </Link>
       </div>
+
+      {/* 最近開いたタスクリスト */}
+      {recentTaskLists.length > 0 && (
+        <div className="py-8 bg-gray-50 dark:bg-gray-800 rounded-lg">
+          <div className="flex items-center gap-2 mb-6 px-6">
+            <Clock className="h-5 w-5 text-blue-500" />
+            <h2 className="text-xl font-semibold">最近開いたタスクリスト</h2>
+            <div className="ml-auto">
+              <span className="text-sm text-gray-500">{recentTaskLists.length}件</span>
+            </div>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 px-6">
+            {recentTaskLists.slice(0, 6).map((item) => (
+              <Card key={item.id} className="hover:shadow-md transition-shadow bg-white dark:bg-gray-700">
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between">
+                    <h3 className="font-medium text-sm truncate flex-1 pr-2">
+                      {item.title}
+                    </h3>
+                    <ExternalLink className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-gray-500">
+                      {new Date(item.lastAccessed).toLocaleDateString('ja-JP', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+                    <Link href={`/tasks/${item.id}`}>
+                      <Button variant="ghost" size="sm" className="h-8 px-2 text-xs hover:bg-blue-50 hover:text-blue-600">
+                        開く
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          {recentTaskLists.length > 6 && (
+            <div className="text-center mt-4">
+              <p className="text-sm text-gray-500">他 {recentTaskLists.length - 6} 件のタスクリスト</p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid md:grid-cols-3 gap-6 md:gap-8 py-12">
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md flex flex-col items-center text-center">

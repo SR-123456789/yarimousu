@@ -122,6 +122,64 @@ const getCachedTaskListData = (
 // キャッシュの有効期限（10分）
 const CACHE_EXPIRY = 10 * 60 * 1000;
 
+// タスクリスト履歴管理
+type TaskListHistoryItem = {
+  id: string;
+  title: string;
+  lastAccessed: number;
+};
+
+// 最近開いたタスクリストを履歴に追加する関数
+const addToTaskListHistory = (id: string, title: string): void => {
+  if (typeof window === "undefined") return;
+
+  const historyKey = "yarimaus_tasklist_history";
+  const existingHistory = localStorage.getItem(historyKey);
+  let history: TaskListHistoryItem[] = [];
+
+  if (existingHistory) {
+    try {
+      history = JSON.parse(existingHistory);
+    } catch (e) {
+      history = [];
+    }
+  }
+
+  // 既存のエントリを削除（重複を避けるため）
+  history = history.filter((item) => item.id !== id);
+
+  // 新しいエントリを先頭に追加
+  history.unshift({
+    id,
+    title,
+    lastAccessed: Date.now(),
+  });
+
+  // 最大10件まで保持
+  history = history.slice(0, 10);
+
+  localStorage.setItem(historyKey, JSON.stringify(history));
+};
+
+// 最近開いたタスクリストの履歴を取得する関数
+export const getTaskListHistory = (): TaskListHistoryItem[] => {
+  if (typeof window === "undefined") return [];
+
+  const historyKey = "yarimaus_tasklist_history";
+  const existingHistory = localStorage.getItem(historyKey);
+
+  if (!existingHistory) return [];
+
+  try {
+    const history: TaskListHistoryItem[] = JSON.parse(existingHistory);
+    // 30日以上古いものは除外
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    return history.filter((item) => item.lastAccessed > thirtyDaysAgo);
+  } catch (e) {
+    return [];
+  }
+};
+
 export default function TaskListPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -301,6 +359,13 @@ export default function TaskListPage() {
       }
     };
   }, [fetchTaskList]);
+
+  // タスクリストが読み込まれた時に履歴に追加
+  useEffect(() => {
+    if (taskList) {
+      addToTaskListHistory(id, taskList.title);
+    }
+  }, [taskList, id]);
 
   // URLからタスクIDを取得し、検索欄に設定（初回のみ）
   useEffect(() => {
@@ -2091,11 +2156,11 @@ export default function TaskListPage() {
                       </Button>
                     </div>
 
-                    {/* 詳細とコメントのタブ（展開時のみ表示） */}
+                                       {/* 詳細とコメントのタブ（展開時のみ表示） */}
                     {expandedTasks[task.id] && (
                       <Tabs defaultValue="details" className="w-full">
                         <TabsList className="w-full md:w-auto">
-                          <TabsTrigger
+                                                   <TabsTrigger
                             value="details"
                             className="flex-1 md:flex-none"
                           >
@@ -2147,7 +2212,13 @@ export default function TaskListPage() {
 
         <UsernameDialog
           isOpen={showUsernameDialog}
-          onClose={handleUsernameSubmit}
+          onClose={(username) => {
+            if (username) {
+              handleUsernameSubmit(username);
+            } else {
+              setShowUsernameDialog(false);
+            }
+          }}
         />
         {selectedTaskForShare && (
           <TaskShareDialog

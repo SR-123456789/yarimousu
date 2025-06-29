@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
-import { Menu, Plus } from "lucide-react"
+import { Menu, Plus, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
@@ -63,6 +63,9 @@ export function Header() {
 
         {/* デスクトップナビゲーション */}
         <div className="hidden md:flex items-center space-x-4">
+          <Link href="/" className="text-sm text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100">
+            最近のタスク
+          </Link>
           <Link href="/new" className="text-sm text-blue-500 hover:text-blue-600">
             新規作成
           </Link>
@@ -78,6 +81,14 @@ export function Header() {
             </SheetTrigger>
             <SheetContent side="right" className="w-[250px] sm:w-[300px]">
               <div className="flex flex-col space-y-4 mt-8">
+                <Link
+                  href="/"
+                  className="flex items-center space-x-2 px-4 py-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  <Clock className="h-4 w-4 text-gray-500" />
+                  <span>最近のタスク</span>
+                </Link>
                 <Link
                   href="/new"
                   className="flex items-center space-x-2 px-4 py-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
