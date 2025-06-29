@@ -28,6 +28,7 @@ export const tasks = pgTable("tasks", {
   completed: boolean("completed").default(false).notNull(),
   progressPercentage: integer("progress_percentage").default(0), // 進捗パーセンテージを追加
   priority: real("priority"), // 優先順位を追加（小数点対応）
+  position: integer("position").default(0).notNull(), // 並び順を追加
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })

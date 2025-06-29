@@ -4,7 +4,7 @@
 
 import type React from "react";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react"; "react"; "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -76,6 +76,7 @@ type Task = {
   completed: boolean;
   progressPercentage?: number;
   priority?: number;
+  position: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -1178,102 +1179,156 @@ export default function TaskListPage() {
     setSelectedKanbanTask(task);
   }, []);
 
-  // スライダーの値変更ハンドラ
-  const handleSliderChange = (taskId: string, value: number[]) => {
-    setSliderValues((prev) => ({
-      ...prev,
-      [taskId]: value[0],
-    }));
-  };
+  // タスクの並び替えハンドラ
+  const handleTaskReorder = useCallback(async (reorderedTasks: Task[]) => {
+    try {
+      // 楽観的更新：UIを即座に更新
+      setTasks(reorderedTasks);
 
-  // スライダーの値確定ハンドラ
-  const handleSliderCommit = (taskId: string, value: number[]) => {
-    handleTaskProgressChange(taskId, value[0]);
-  };
+      // サーバーに並び替えを送信
+      const response = await fetch(`/api/tasks/${id}/reorder`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          tasks: reorderedTasks.map(task => ({
+            id: task.id,
+            position: task.position
+          }))
+        }),
+      });
 
-  // 検索条件のリセット
-  const resetFilters = () => {
-    setSearchQuery("");
-    setSearchById("");
-    setStatusFilter("all");
-  };
+      if (!response.ok) {
+        // エラーの場合は元のタスクを復元
+        setTasks(tasks);
+        
+        if (response.status === 429) {
+          alert("サーバーが混雑しています。しばらく待ってから再試行してください。");
+          return;
+        }
+        throw new Error("タスクの並び替えに失敗しました");
+      }
 
-  // 検索条件が適用されているかどうか
-  const hasActiveFilters =
-    searchQuery !== "" || searchById !== "" || statusFilter !== "all";
+      // キャッシュを更新
+      const cachedData = getCachedTaskListData(id);
+      if (cachedData) {
+        const updatedData = {
+          ...cachedData.data,
+          tasks: reorderedTasks,
+        };
+        cacheTaskListData(id, updatedData);
+      }
+    } catch (error) {
+      console.error("Error reordering tasks:", error);
+      // エラーの場合は元のタスクを復元
+      setTasks(tasks);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "タスクの並び替え中にエラーが発生しました"
+      );
+    }
+  }, [id, tasks]);
 
-  // 選択されたタスクを取得（URLパラメータから）
-  const selectedTaskId = searchParams.get("task");
-  const selectedTask = selectedTaskId
-    ? tasks.find((t) => t.id === selectedTaskId)
-    : null;
+  // タスクをソートする関数
+  const getSortedTasks = useCallback((taskList: Task[]) => {
+    if (!taskList || taskList.length === 0) return [];
+    
+    return [...taskList].sort((a, b) => {
+      // 優先度のソート条件がある場合は優先度でソート
+      const priorityOrder = sortOrder.priority;
+      if (priorityOrder) {
+        const priorityA = a.priority || 0;
+        const priorityB = b.priority || 0;
+        
+        if (priorityA !== priorityB) {
+          return priorityOrder === 'asc' ? priorityA - priorityB : priorityB - priorityA;
+        }
+      }
+      
+      // 優先度でのソートがない場合、または優先度が同じ場合はpositionでソート
+      if (a.position !== b.position) {
+        return a.position - b.position;
+      }
+      
+      // その他のソート条件を適用
+      for (const [field, order] of Object.entries(sortOrder)) {
+        if (field === 'priority' || order === null) continue;
+        
+        let comparison = 0;
+        
+        switch (field) {
+          case 'title':
+            comparison = a.title.localeCompare(b.title);
+            break;
+          case 'status':
+            comparison = a.status.localeCompare(b.status);
+            break;
+          case 'createdAt':
+            comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+            break;
+          case 'updatedAt':
+            comparison = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+            break;
+          case 'assignedTo':
+            comparison = (a.assignedTo || '').localeCompare(b.assignedTo || '');
+            break;
+          default:
+            continue;
+        }
+        
+        if (comparison !== 0) {
+          return order === 'asc' ? comparison : -comparison;
+        }
+      }
+      
+      return 0;
+    });
+  }, [sortOrder]);
 
   // 優先順位でソートする関数
-  const sortTasksByPriority = (status: string) => {
-    const currentOrder = sortOrder[status] || null;
-    let newOrder: 'asc' | 'desc' | null;
-    
-    // null -> desc -> asc -> null の順でトグル
-    if (currentOrder === null) {
-      newOrder = 'desc'; // 高い順
-    } else if (currentOrder === 'desc') {
-      newOrder = 'asc'; // 低い順
+  const sortTasksByPriority = useCallback((order: 'asc' | 'desc' | 'all') => {
+    if (order === 'all') {
+      // ソート順をリセット
+      setSortOrder(prev => ({ ...prev, priority: null }));
     } else {
-      newOrder = null; // ソートなし（元の順序）
+      // 優先順位でソート
+      setSortOrder(prev => ({ ...prev, priority: order }));
     }
-    
-    setSortOrder(prev => ({
+  }, []);
+
+  // アクティブなフィルターがあるかチェック
+  const hasActiveFilters = useMemo(() => {
+    return searchQuery.trim() !== '' || 
+           searchById.trim() !== '' || 
+           statusFilter !== 'all' ||
+           Object.values(sortOrder).some(order => order !== null);
+  }, [searchQuery, searchById, statusFilter, sortOrder]);
+
+  // フィルターをリセットする関数
+  const resetFilters = useCallback(() => {
+    setSearchQuery('');
+    setSearchById('');
+    setStatusFilter('all');
+    setSortOrder({});
+    setShowAdvancedSearch(false);
+  }, []);
+
+  // スライダーの値変更ハンドラ
+  const handleSliderChange = useCallback((taskId: string, value: number[]) => {
+    const newValue = value[0];
+    setSliderValues(prev => ({
       ...prev,
-      [status]: newOrder
+      [taskId]: newValue
     }));
-  };
+  }, []);
 
-  // ソートされたタスクを取得する関数
-  const getSortedTasks = (tasksToSort: Task[]): Task[] => {
-    // "all"キーでのソートが設定されている場合（リストビュー用）
-    const allOrder = sortOrder["all"];
-    if (allOrder) {
-      return [...tasksToSort].sort((a, b) => {
-        const priorityA = a.priority ?? 1;
-        const priorityB = b.priority ?? 1;
-        
-        if (allOrder === 'desc') {
-          return priorityB - priorityA; // 高い順
-        } else {
-          return priorityA - priorityB; // 低い順
-        }
-      });
-    }
-
-    // ステータス別にグループ化（カンバンビュー用）
-    const groupedTasks = tasksToSort.reduce((acc, task) => {
-      if (!acc[task.status]) {
-        acc[task.status] = [];
-      }
-      acc[task.status].push(task);
-      return acc;
-    }, {} as Record<string, Task[]>);
-
-    // 各ステータスグループ内でソート
-    Object.keys(groupedTasks).forEach(status => {
-      const order = sortOrder[status];
-      if (order) {
-        groupedTasks[status].sort((a, b) => {
-          const priorityA = a.priority ?? 1;
-          const priorityB = b.priority ?? 1;
-          
-          if (order === 'desc') {
-            return priorityB - priorityA; // 高い順
-          } else {
-            return priorityA - priorityB; // 低い順
-          }
-        });
-      }
-    });
-
-    // 結果を統合
-    return Object.values(groupedTasks).flat();
-  };
+  // スライダーの値確定ハンドラ
+  const handleSliderCommit = useCallback((taskId: string, value: number[]) => {
+    const newValue = value[0];
+    handleTaskProgressChange(taskId, newValue);
+  }, [handleTaskProgressChange]);
 
   if (loading) {
     return (
@@ -1811,6 +1866,7 @@ export default function TaskListPage() {
                 onPriorityChange={handlePriorityChange}
                 sortOrder={sortOrder}
                 onSortByPriority={sortTasksByPriority}
+                onTaskReorder={handleTaskReorder} // 並び替えハンドラを追加
               />
             </div>
           ) : filteredTasks.length === 0 ? (
@@ -2052,17 +2108,8 @@ export default function TaskListPage() {
                                 // 無効な値の場合は元の値に戻す
                                 setTaskPriorities((prev) => ({
                                   ...prev,
-                                  [task.id]: (task.priority ?? 1).toString(),
+                                  [task.id]: String(task.priority ?? 1),
                                 }));
-                              }
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                const priorityValue = parseFloat(taskPriorities[task.id] || "1");
-                                if (!isNaN(priorityValue) && priorityValue >= 0) {
-                                  handlePriorityChange(task.id, priorityValue);
-                                  e.currentTarget.blur();
-                                }
                               }
                             }}
                             className="w-16 h-8 text-sm text-center border-2 border-transparent bg-gray-50 dark:bg-gray-800 rounded-lg 
@@ -2116,7 +2163,7 @@ export default function TaskListPage() {
                             進捗状況:
                           </Label>
                           <span className="text-sm font-medium">
-                            {sliderValues[task.id] || 0}%
+                            {sliderValues[task.id] ||  0}%
                           </span>
                         </div>
                         <Slider
@@ -2219,6 +2266,7 @@ export default function TaskListPage() {
               setShowUsernameDialog(false);
             }
           }}
+
         />
         {selectedTaskForShare && (
           <TaskShareDialog

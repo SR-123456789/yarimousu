@@ -1,5 +1,7 @@
+/* eslint-disable react/forbid-dom-props */
 "use client"
 
+import React from "react"
 import { useState, useEffect, useRef } from "react"
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd"
 import { Card, CardHeader, CardContent } from "@/components/ui/card"
@@ -29,6 +31,7 @@ type Task = {
   completed: boolean
   progressPercentage?: number
   priority?: number
+  position: number
   createdAt: string
   updatedAt: string
 }
@@ -48,7 +51,8 @@ interface KanbanBoardProps {
   onAssigneeChange?: (taskId: string, assignee: string) => void
   onPriorityChange?: (taskId: string, priority: number) => void
   sortOrder?: Record<string, 'asc' | 'desc' | null>
-  onSortByPriority?: (status: string) => void
+  onSortByPriority?: (order: "asc" | "desc" | "all") => void
+  onTaskReorder?: (tasks: Task[]) => void
 }
 
 const statusColumns = [
@@ -75,6 +79,7 @@ export function KanbanBoard({
   onPriorityChange,
   sortOrder = {},
   onSortByPriority,
+  onTaskReorder,
 }: KanbanBoardProps) {
   const [columns, setColumns] = useState<{ [key: string]: Task[] }>({})
   const isMobile = useMobile()
@@ -131,19 +136,22 @@ export function KanbanBoard({
     statusColumns.forEach((column) => {
       let columnTasks = tasks.filter((task) => task.status === column.id)
       
-      // ソート順が設定されている場合は適用
-      const order = sortOrder[column.id]
-      if (order) {
+      // 優先度のソート順が設定されている場合は適用
+      const priorityOrder = sortOrder.priority
+      if (priorityOrder) {
         columnTasks.sort((a, b) => {
           const priorityA = a.priority ?? 1
           const priorityB = b.priority ?? 1
           
-          if (order === 'desc') {
+          if (priorityOrder === 'desc') {
             return priorityB - priorityA // 高い順
           } else {
             return priorityA - priorityB // 低い順
           }
         })
+      } else {
+        // デフォルトはpositionでソート
+        columnTasks.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
       }
       
       newColumns[column.id] = columnTasks
@@ -165,11 +173,40 @@ export function KanbanBoard({
     const task = tasks.find((t) => t.id === draggableId)
     if (!task) return
 
-    // 新しいステータスを設定
-    const newStatus = destination.droppableId
+    const sourceColumnId = source.droppableId
+    const destinationColumnId = destination.droppableId
 
-    // ステータスが変更された場合はAPIを呼び出す
-    if (task.status !== newStatus) {
+    // 同一カラム内での並び替えの場合
+    if (sourceColumnId === destinationColumnId) {
+      // 同じステータス内でのposition変更
+      const columnTasks = tasks.filter(t => t.status === sourceColumnId)
+      const otherTasks = tasks.filter(t => t.status !== sourceColumnId)
+      
+      // ドラッグしたタスクを配列から削除
+      const taskIndex = columnTasks.findIndex(t => t.id === draggableId)
+      if (taskIndex === -1) return
+      
+      const [draggedTask] = columnTasks.splice(taskIndex, 1)
+      
+      // 新しい位置に挿入
+      columnTasks.splice(destination.index, 0, draggedTask)
+      
+      // position値を更新
+      const updatedColumnTasks = columnTasks.map((t, index) => ({
+        ...t,
+        position: index
+      }))
+      
+      // 全体のタスクリストを再構築
+      const reorderedTasks = [...otherTasks, ...updatedColumnTasks]
+      
+      // 並び替えを親コンポーネントに通知
+      if (onTaskReorder) {
+        onTaskReorder(reorderedTasks)
+      }
+    } else {
+      // 異なるカラム間での移動の場合（既存の処理）
+      const newStatus = destinationColumnId
       onTaskStatusChange(task.id, newStatus)
       // ステータス変更時に担当者を更新
       onAssigneeChange?.(task.id, userName)
@@ -289,22 +326,35 @@ export function KanbanBoard({
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2 text-xs hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
-                      onClick={() => onSortByPriority(column.id)}
+                      onClick={() => {
+                        const currentOrder = sortOrder.priority;
+                        let nextOrder: "asc" | "desc" | "all";
+                        
+                        if (!currentOrder) {
+                          nextOrder = "desc"; // 高い順から開始
+                        } else if (currentOrder === "desc") {
+                          nextOrder = "asc"; // 低い順に変更
+                        } else {
+                          nextOrder = "all"; // リセット
+                        }
+                        
+                        onSortByPriority(nextOrder);
+                      }}
                       title={
-                        !sortOrder[column.id] 
+                        !sortOrder.priority 
                           ? "優先度で並び替える" 
-                          : sortOrder[column.id] === 'desc' 
+                          : sortOrder.priority === 'desc' 
                           ? "優先度順: 高い順に表示中（クリックで低い順に変更）" 
                           : "優先度順: 低い順に表示中（クリックでリセット）"
                       }
                     >
                       <div className="flex items-center gap-1">
-                        {!sortOrder[column.id] ? (
+                        {!sortOrder.priority ? (
                           <>
                             <ArrowUpDown className="w-3 h-3" />
                             <span className="text-[10px] font-medium">優先度</span>
                           </>
-                        ) : sortOrder[column.id] === 'desc' ? (
+                        ) : sortOrder.priority === 'desc' ? (
                           <>
                             <ArrowDown className="w-3 h-3 text-red-500" />
                             <span className="text-[10px] font-medium text-red-600">高→低</span>
@@ -443,11 +493,11 @@ export function KanbanBoard({
                             {/* 作業中のタスクには進捗バーを表示 */}
                             {task.status === "作業中" && (
                               <div className="px-3 pb-2">
-                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 relative">
                                   <div
-                                    className="bg-blue-500 h-1.5 rounded-full"
-                                    style={{ width: `${task.progressPercentage || 0}%` }}
-                                  ></div>
+                                    className={`bg-blue-500 h-1.5 rounded-full transition-all duration-300 absolute left-0 top-0`}
+                                    style={{ width: `${Math.min(100, Math.max(0, task.progressPercentage || 0))}%` }}
+                                  />
                                 </div>
                               </div>
                             )}

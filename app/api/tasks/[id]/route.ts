@@ -36,9 +36,13 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         throw new Error("タスクリストが見つかりません")
       }
 
-      // タスクを取得
+      // タスクを取得（positionで並び順を制御）
       try {
-        const taskItems = await db.select().from(tasks).where(eq(tasks.listId, id)).orderBy(tasks.createdAt)
+        const taskItems = await db
+          .select()
+          .from(tasks)
+          .where(eq(tasks.listId, id))
+          .orderBy(tasks.position, tasks.createdAt)
         
         // priorityカラムが存在しない場合のフォールバック処理
         const tasksWithPriority = ensureTasksPriority(taskItems)
@@ -48,10 +52,10 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
           tasks: tasksWithPriority,
         }
       } catch (dbError) {
-        // priorityカラムが存在しない場合のフォールバック
-        console.warn("Database query failed, possibly missing priority column:", dbError)
+        // priorityやpositionカラムが存在しない場合のフォールバック
+        console.warn("Database query failed, possibly missing priority or position column:", dbError)
         
-        // priorityカラムなしでクエリを再試行
+        // priority/positionカラムなしでクエリを再試行
         const taskItems = await db.select({
           id: tasks.id,
           listId: tasks.listId,
@@ -65,15 +69,16 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
           updatedAt: tasks.updatedAt,
         }).from(tasks).where(eq(tasks.listId, id)).orderBy(tasks.createdAt)
 
-        // priority: 1をデフォルトとして追加
-        const tasksWithPriority = taskItems.map(task => ({
+        // priority: 1、position: indexをデフォルトとして追加
+        const tasksWithDefaults = taskItems.map((task, index) => ({
           ...task,
-          priority: 1
+          priority: 1,
+          position: index
         }))
 
         return {
           taskList,
-          tasks: tasksWithPriority,
+          tasks: tasksWithDefaults,
         }
       }
     })
